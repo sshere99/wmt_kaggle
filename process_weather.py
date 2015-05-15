@@ -3,6 +3,19 @@ __author__ = 'sheraz'
 import pandas as pd
 import numpy as np
 
+def run_wthr():
+
+    print("Reading in unprocessed weather file.....")
+    weather = pd.read_csv('../wmt_data/weather.csv')
+
+    # arguments for function below -- add_wknd, add_trail_lead, drop_other_data, add_holidays
+    weather = process_weather_file(weather, True, False, True, True)
+    print weather.columns
+    weather.to_csv('../wmt_data/weather_processed.csv')
+
+    return
+
+
 
 def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add_holiday_flag):
 
@@ -291,3 +304,7 @@ def update_precip(weather_stn):
 
     return weather_stn
 
+
+if __name__ == "__main__":
+    pd.options.display.max_columns = 82
+    run_wthr()
