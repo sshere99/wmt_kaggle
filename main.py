@@ -20,15 +20,20 @@ from sklearn.preprocessing import MinMaxScaler
 
 def main():
 
-    # Flag to indicate if we should create a seperate model for each item
+    # Flag to indicate if we should create a seperate model for each item, process weather or not
     run_by_item = True
+    process_weather = False
 
-    # Read in weather data
-    print("Reading in weather and key file.....")
-    weather = pd.read_csv('../wmt_data/weather.csv')
+    if process_weather:
+        print("Reading in unprocessed weather file.....")
+        weather = pd.read_csv('../wmt_data/weather.csv')
+        # arguments for function below -- add_wknd, add_trail_lead, drop_other_data, add_holidays
+        weather = pw.process_weather_file(weather, True, False, True, True)
+        weather.to_csv('../wmt_data/weather_processed.csv')
 
-    # Get processed weather dataframe -- add_wknd, add_trail_lead, drop_other_data, add_holidays
-    weather = pw.process_weather_file(weather, True, False, True, True)
+    else:
+        print("Reading in already processed weather file.....")
+        weather = pd.read_csv('../wmt_data/weather_processed.csv')
 
     # Get training data merged with weather data
     train = merge_train_weather(weather)
@@ -36,7 +41,7 @@ def main():
     # Get test data merged with weather data
     test = merge_test_weather(weather)
 
-    sub_number = 7
+    sub_number = 8
     all_labels = np.array([])
     all_preds = np.array([])
 
@@ -94,7 +99,6 @@ def merge_test_weather(weather):
     test_merged = pd.merge(test, weather, left_on=['date', 'station_nbr'], right_on=['date', 'station_nbr'], how='left')
 
     print('Dropping unneccesary columns from test.....')
-    #test_merged.drop('codesum', axis=1, inplace=True)
     test_merged.drop('station_nbr', axis=1, inplace=True)
 
     return test_merged
@@ -109,7 +113,7 @@ def run_model_by_item(train, test, item_num, f):
     #clf = SVR(kernel='linear')
     #clf = DecisionTreeRegressor(random_state=0)
     #clf = linear_model.SGDRegressor(learning_rate='constant', eta0=0.00001)
-    clf = RandomForestRegressor(n_estimators=20)
+    clf = RandomForestRegressor(n_estimators=20, min_samples_split=100)
 
     # Fit model
     clf.fit(X_train, Y_train)
@@ -148,7 +152,6 @@ def process_x_data(x_data, train_flag):  ## train flag = True if sending train d
 
     x_new.drop('Unnamed: 0', axis=1, inplace=True)
     x_new.drop('store_nbr', axis=1, inplace=True)
-    print("Columns to run the model on are: {}".format(x_new.columns))
     X = x_new.as_matrix()
     imputer = Imputer()
     X = imputer.fit_transform(X)   # Fill in mean for missing NaN values

@@ -1,5 +1,3 @@
-import pandas as pd
-import numpy as np
 import process_weather as pw
 import score_funcs as sf
 import pandas as pd
@@ -9,7 +7,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.ensemble import BaggingRegressor
 from sklearn import linear_model
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.cross_validation import train_test_split
+from sklearn.metrics import mean_squared_error, make_scorer
+from sklearn import grid_search
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from sklearn.svm import SVR
@@ -26,6 +25,7 @@ def run_tests():
         print("Reading in unprocessed weather file.....")
         weather = pd.read_csv('../wmt_data/weather.csv')
         weather = pw.process_weather_file(weather, True, False, True, True)
+        weather.to_csv('../wmt_data/weather_processed.csv')
 
     else:
         print("Reading in already processed weather file.....")
@@ -34,16 +34,14 @@ def run_tests():
     # Get training data merged with weather data
     train = merge_train_weather(weather)
 
-    all_labels = np.array([])
-    all_preds = np.array([])
-
-    for i in range(11):
+    for i in range(20):
         item_nbr = i+1
+        print("Running model for item {}".format(item_nbr))
         train_item = train[train['item_nbr'] == item_nbr]
-        Y_dev, X_dev_pred = run_model_by_item(train_item, item_nbr)
-        all_labels = np.hstack((all_labels,Y_dev))
-        all_preds = np.hstack((all_preds,X_dev_pred))
-    print("Overall RMSLE = {}".format(sf.rmsle(all_labels, all_preds)))
+        run_model_by_item(train_item, item_nbr)
+
+
+    return
 
 
 def merge_train_weather(weather):
@@ -72,17 +70,29 @@ def merge_train_weather(weather):
 def run_model_by_item(train, item_num):
 
     X, Y = convert_to_numpy(train)
-    X_train, X_dev, Y_train, Y_dev = train_test_split(X, Y, test_size=0.25, random_state=42)
+    n_features = int(X.shape[1])
 
-    clf = RandomForestRegressor(n_estimators=10)
+    # Grid search parameters
+    parameters = {'max_features': [n_features],
+                  'min_samples_split': [100, 500, 1000]}
+    my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
 
-    # Fit model
-    clf.fit(X_train, Y_train)
-    X_dev_pred = clf.predict(X_dev).clip(0)
-    print("RMSLE for item {} = {}".format(item_num, sf.rmsle(Y_dev, X_dev_pred)))
+    rf = RandomForestRegressor()
+    clf = grid_search.GridSearchCV(rf, parameters, cv=10, scoring=my_scorer)
+    clf.fit(X, Y)
 
-    return Y_dev, X_dev_pred
+    print("Best parameters set found on development set:")
+    print()
+    print(clf.best_params_)
+    print()
+    print("Grid scores on development set:")
+    print()
+    for params, mean_score, scores in clf.grid_scores_:
+        print("%0.3f (+/-%0.03f) for %r"
+              % (mean_score, scores.std() * 2, params))
+    print()
 
+    return
 
 def convert_to_numpy(train):
     y = train['units']   # Get labels
@@ -106,7 +116,7 @@ def process_x_data(x_data, train_flag):  ## train flag = True if sending train d
 
     x_new.drop('Unnamed: 0', axis=1, inplace=True)
     x_new.drop('store_nbr', axis=1, inplace=True)
-    print("Columns to run the model on are: {}".format(list(x_new.columns)))
+    #print("Columns to run the model on are: {}".format(list(x_new.columns)))
     X = x_new.as_matrix()
     imputer = Imputer()
     X = imputer.fit_transform(X)   # Fill in mean for missing NaN values
