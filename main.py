@@ -10,6 +10,8 @@ from sklearn.ensemble import BaggingRegressor
 from sklearn import linear_model
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.cross_validation import train_test_split
+from sklearn.metrics import make_scorer
+from sklearn import grid_search
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from sklearn.svm import SVR
@@ -41,7 +43,7 @@ def main():
     # Get test data merged with weather data
     test = merge_test_weather(weather)
 
-    sub_number = 8
+    sub_number = 12
     all_labels = np.array([])
     all_preds = np.array([])
 
@@ -53,10 +55,13 @@ def main():
                 item_nbr = i+1
                 train_item = train[train['item_nbr'] == item_nbr]
                 test_item = test[test['item_nbr'] == item_nbr]
-                Y_dev, X_dev_pred = run_model_by_item(train_item, test_item, item_nbr, f)
-                all_labels = np.hstack((all_labels,Y_dev))
-                all_preds = np.hstack((all_preds,X_dev_pred))
-            print("Overall RMSLE = {}".format(sf.rmsle(all_labels, all_preds)))
+
+                print('running model for item {}'.format(item_nbr))
+                # Y_dev, X_dev_pred = run_model_by_item(train_item, test_item, item_nbr, f)
+                run_model_by_item_gridsearch(train_item, test_item, item_nbr, f)
+                #all_labels = np.hstack((all_labels,Y_dev))
+                #all_preds = np.hstack((all_preds,X_dev_pred))
+            #print("Overall RMSLE = {}".format(sf.rmsle(all_labels, all_preds)))
 
         else:   # Just create one model for all items
             print('Preparing to build model on entire dataset')
@@ -122,12 +127,40 @@ def run_model_by_item(train, test, item_num, f):
     test.drop('date', axis=1, inplace=True)
     y_pred = predict_test_and_write(clf, test, item_num, dates, stores, f)
 
-    #X_dev_pred = None
     X_dev_pred = clf.predict(X_dev).clip(0)
-    #print("r squared for item {} = {}".format(item_num, r2_score(Y_dev, X_dev_pred)))
     print("RMSLE for item {} = {}".format(item_num, sf.rmsle(Y_dev, X_dev_pred)))
 
     return Y_dev, X_dev_pred
+
+
+def run_model_by_item_gridsearch(train, test, item_num, f):
+
+    X, Y = convert_to_numpy(train)
+    n_features = int(X.shape[1])
+
+    # Grid search parameters
+    parameters = {'min_samples_split': [100, 500], 'min_samples_leaf': [1, 50, 100]}
+
+    my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
+
+    rf = RandomForestRegressor(n_estimators=20)
+    clf = grid_search.GridSearchCV(rf, parameters, cv=7, scoring=my_scorer)
+    clf.fit(X, Y)
+
+    print("Best parameters set found on development set:\n")
+    print(clf.best_params_)
+    print("\n Grid scores on development set:\n")
+
+    for params, mean_score, scores in clf.grid_scores_:
+        print("%0.3f (+/-%0.03f) for %r"
+              % (mean_score, scores.std() * 2, params))
+
+    dates = test['date']
+    stores = test['store_nbr']
+    test.drop('date', axis=1, inplace=True)
+    y_pred = predict_test_and_write(clf.best_estimator_, test, item_num, dates, stores, f)
+
+    return
 
 
 def convert_to_numpy(train):
@@ -135,8 +168,7 @@ def convert_to_numpy(train):
     train.drop('units', axis=1, inplace=True)   # Drop labels from X
     Y = np.array(y)
     X_scaled = process_x_data(train, True)   ## process some more and turn into numpy
-    #X_scaled = MinMaxScaler().fit_transform(X_scaled, Y)
-    #X_scaled = SelectKBest(chi2, k=30).fit_transform(X_scaled, Y)
+
     return X_scaled, Y
 
 

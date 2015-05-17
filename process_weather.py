@@ -3,6 +3,7 @@ __author__ = 'sheraz'
 import pandas as pd
 import numpy as np
 
+
 def run_wthr():
 
     print("Reading in unprocessed weather file.....")
@@ -14,7 +15,6 @@ def run_wthr():
     weather.to_csv('../wmt_data/weather_processed.csv')
 
     return
-
 
 
 def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add_holiday_flag):
@@ -67,7 +67,7 @@ def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add
     if add_holiday_flag:
         weather = add_holidays(weather)
 
-    # xxx
+    # drop other data
     if other_data_flag:
         weather.drop('sunrise', axis=1, inplace=True)
         weather.drop('sunset', axis=1, inplace=True)
@@ -75,8 +75,16 @@ def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add
         weather.drop('dewpoint', axis=1, inplace=True)
         weather.drop('stnpressure', axis=1, inplace=True)
         weather.drop('sealevel', axis=1, inplace=True)
+        weather.drop('resultspeed', axis=1, inplace=True)
+        weather.drop('resultdir', axis=1, inplace=True)
+        weather.drop('avgspeed', axis=1, inplace=True)
+        weather.drop('heat', axis=1, inplace=True)
+        weather.drop('cool', axis=1, inplace=True)
 
-    weather.to_csv("../wmt_data/weather_processed.csv")
+    # Create flag for weather event
+    #weather['rain_event'] = weather.apply(lambda thisrow: 1 if thisrow['preciptotal'] > 1 else 0, axis=1)
+    #weather['snow_event'] = weather.apply(lambda thisrow: 1 if thisrow['snowfall'] > 2 else 0, axis=1)
+
     return weather
 
 

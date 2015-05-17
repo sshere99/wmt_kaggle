@@ -74,23 +74,21 @@ def run_model_by_item(train, item_num):
 
     # Grid search parameters
     parameters = {'max_features': [n_features],
-                  'min_samples_split': [100, 500, 1000]}
+                  'min_samples_split': [500, 1000],
+                  'min_samples_leaf': [1, 50, 100],
+                  }
     my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
 
     rf = RandomForestRegressor()
     clf = grid_search.GridSearchCV(rf, parameters, cv=10, scoring=my_scorer)
     clf.fit(X, Y)
 
-    print("Best parameters set found on development set:")
-    print()
+    print("Best parameters set found on development set:\n")
     print(clf.best_params_)
-    print()
-    print("Grid scores on development set:")
-    print()
+    print("\n Grid scores on development set:\n")
     for params, mean_score, scores in clf.grid_scores_:
         print("%0.3f (+/-%0.03f) for %r"
               % (mean_score, scores.std() * 2, params))
-    print()
 
     return
 
@@ -100,7 +98,6 @@ def convert_to_numpy(train):
     Y = np.array(y)
     X_scaled = process_x_data(train, True)   ## process some more and turn into numpy
     #X_scaled = MinMaxScaler().fit_transform(X_scaled, Y)
-    #X_scaled = SelectKBest(chi2, k=30).fit_transform(X_scaled, Y)
     return X_scaled, Y
 
 
