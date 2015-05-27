@@ -6,7 +6,6 @@ import numpy as np
 import csv
 from sklearn.preprocessing import Imputer
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.cross_validation import train_test_split
 from sklearn.metrics import make_scorer
 from sklearn import grid_search
@@ -14,11 +13,18 @@ from sklearn import grid_search
 
 def main():
 
-    print("Reading in already processed weather file.....")
-    weather = pd.read_csv('../wmt_data/weather_processed.csv')
-    print("Columns in weather file are {}\n\n\ Dropping Some Columns..".format(weather.columns))
+    process_weather = False
 
-    # Columns not to use for this run
+    # Process weather file or use pre-processed file
+    if process_weather:
+        print("Reading in unprocessed weather file.....")
+        weather = pd.read_csv('../wmt_data/weather.csv')
+        # arguments for function below -- add_wknd, add_trail_lead, drop_other_data, add_holidays
+        weather = pw.process_weather_file(weather, True, True, True)
+
+    else:
+        print("Reading in already processed weather file.....")
+        weather = pd.read_csv('../wmt_data/weather_processed_test.csv')
 
     # Get training data merged with weather data
     train = merge_train_weather(weather)
@@ -26,10 +32,7 @@ def main():
     # Get test data merged with weather data
     test = merge_test_weather(weather)
 
-    #items = [15, 45, 16, 37, 9]
-    #items = [8, 9, 98, 95, 87, 81, 78, 67, 63, 13, 17, 24, 28, 35, 38, 41, 48, 58, 68, 70, 74]
-    items = range(37, 112)     # items with worst score [93, 9, 15, 45, 16, 37]
-    #items = [1]
+    items = [93, 9, 15, 45, 16, 37]
 
     for item_nbr in items:
         train_item = train[train['item_nbr'] == item_nbr]
@@ -38,11 +41,11 @@ def main():
         print('running for item {0}, score to beat {1:.03f}'.format(item_nbr, best_scores_dict[item_nbr]))
 
         # Select which strategy to use
-        if run_code == 'BASE_GRID':
+        if run_code == 'GRIDSEARCH':
             run_model_by_item_gridsearch(train_item, test_item, item_nbr)
 
-        elif run_code == 'FEAT_GRID':
-            run_feature_gridsearch(train_item, test_item, item_nbr)
+        elif run_code == 'NO_GRID':
+            run_model_by_item(train_item, test_item, item_nbr)
 
         elif run_code == 'BY_STORE':
             all_labels_store = np.array([])
@@ -59,11 +62,11 @@ def main():
             item_score = sf.rmsle(all_labels_store, all_preds_store)
             print("RMSLE for item {} = {}".format(item_nbr, item_score))
             if item_score < best_scores_dict[item_nbr]:
-                # update_new_best_score(item_nbr, item_score)
-                print("FOUND NEW BEST SCORE!")
+                update_new_best_score(item_nbr, item_score)
+                print("ADD FUNCTION TO WRITE!")
 
         else:
-            print("***** INVALID RUN CODE ******")
+            run_feature_gridsearch(train_item, test_item, item_nbr)
 
     print("COMPLETED ENTIRE DATA SET")
 
@@ -110,27 +113,49 @@ def merge_test_weather(weather):
     return test_merged
 
 
-def run_model_by_item_and_store(train, test, item_num, store_num):
+def run_model_by_item(train, test, item_num):
 
-    X, Y = convert_to_numpy(train, False)  # 2nd argument indicates that model is not being run just at item level
+    X, Y = convert_to_numpy(train, True)
     X_train, X_dev, Y_train, Y_dev = train_test_split(X, Y, test_size=0.25, random_state=42)
 
     clf = RandomForestRegressor(n_estimators=20, min_samples_split=100, min_samples_leaf=50)
 
     # Fit model
     clf.fit(X_train, Y_train)
-    #clf.fit(X, Y)
+
+    X_dev_pred = clf.predict(X_dev).clip(0)
+    cur_rmsle = sf.rmsle(Y_dev, X_dev_pred)
+    print("RMSLE for item {} = {}".format(item_num, cur_rmsle))
+    if cur_rmsle < best_scores_dict[item_num]:
+        update_new_best_score(item_num, cur_rmsle)
+
+        # write test predictions
+        with open('../wmt_data/submissions/by_item/item_{}.csv'.format(item_num), 'w') as f:
+
+            dates = test['date']
+            stores = test['store_nbr']
+            test.drop('date', axis=1, inplace=True)
+            predict_test_and_write(clf, test, item_num, dates, stores, f, True) # Last argument = run at itemlevel
+
+        f.close()
+
+    return
+
+
+def run_model_by_item_and_store(train, test, item_num, store_num):
+
+    X, Y = convert_to_numpy(train, False)  # 2nd argument indicates that model is not being run just at item level
+    X_train, X_dev, Y_train, Y_dev = train_test_split(X, Y, test_size=0.25, random_state=42)
+
+    clf = RandomForestRegressor(n_estimators=10, min_samples_split=100, min_samples_leaf=50)
+
+    # Fit model
+    clf.fit(X_train, Y_train)
     dates = test['date']
     stores = test['store_nbr']
     test.drop('date', axis=1, inplace=True)
     if int(store_num) != 35:
-
-        # write test predictions
-        with open('../wmt_data/submissions/by_store/itemstore_{}_{}.csv'.format(item_num, store_num), 'w') as f:
-
-            predict_test_and_write(clf, test, item_num, dates, stores, f, False) # Last argument = run at itemlevel
-
-        f.close()
+        predict_test_and_write(clf, test, item_num, dates, stores, f, False)
 
     X_dev_pred = clf.predict(X_dev).clip(0)
 
@@ -143,22 +168,24 @@ def run_model_by_item_gridsearch(train, test, item_num):
     n_features = int(X.shape[1])
 
     # Grid search parameters
-    #parameters = {'min_samples_split': [100], 'min_samples_leaf': [1, 50], 'n_estimators': [10]}
-    parameters = {'min_samples_split': [5, 100], 'min_samples_leaf': [5, 50]}
+    parameters = {'min_samples_split': [100, 500], 'min_samples_leaf': [1, 50, 100]}
 
     my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
 
-    rf = RandomForestRegressor(n_estimators=15)
+    rf = RandomForestRegressor(n_estimators=20)
     clf = grid_search.GridSearchCV(rf, parameters, cv=7, scoring=my_scorer)
     clf.fit(X, Y)
+
+    print("Best parameters set found on development set:\n")
+    print(clf.best_params_)
+    print("\n Grid scores on development set:\n")
 
     for params, mean_score, scores in clf.grid_scores_:
         print("%0.3f (+/-%0.03f) for %r"
               % (mean_score, scores.std() * 2, params))
 
     best_scr = -clf.best_score_
-    print("best score and params for item {} = {} and {}".format(item_num, best_scr, clf.best_params_))
-    # print("feature importance: {}".format(clf.best_estimator_.feature_importances_))
+    print("best score for item {} = {}".format(item_num, best_scr))
     if best_scr < best_scores_dict[item_num]:
         update_new_best_score(item_num, best_scr)
 
@@ -190,7 +217,7 @@ def run_feature_gridsearch(train, test, item_num):
         this_train = val  # get a given training set
         X, Y = convert_to_numpy(this_train, True)
 
-        parameters = {'min_samples_split': [100, 500]}
+        parameters = {'min_samples_split': [100]}
         my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
 
         rf = RandomForestRegressor(n_estimators=20, min_samples_leaf=50)
@@ -241,51 +268,12 @@ def process_x_data(x_data, train_flag, item_flag):  ## train flag = True if send
 
     x_data.drop('date.1', axis=1, inplace=True)
     # print("TRAIN FLAG: {} Columns for model on are: {}".format(train_flag, list(x_data.columns)))
-    x_data = add_all_interactions(x_data)
     X = x_data.as_matrix()
     imputer = Imputer()
     X = imputer.fit_transform(X)   # Fill in mean for missing NaN values
 
     return X
 
-
-def add_all_interactions(x_data):
-
-    base_interactions = {'b1': ['weekend', 'weather_event'],
-                         'b2': ['weekend', 'tmax'],
-                         'b3': ['weekend', 'snowfall'],
-                         'b4': ['weekend', 'db_xmaseve'],
-                         'b5': ['weather_event', 'dbthanks'],
-                         'b6': ['dblab_day', 'weather_event']}
-
-    x_data = create_base_interactions(x_data, base_interactions)
-
-    vars_to_interact_with_store = ['tmax', 'preciptotal', 'weekofyear', 'weekend', 'date_int',
-                                   'y2012', 'y2013', 'y2014', 'weather_event', 'b1', 'b2', 'b3', 'b4',
-                                   'b5', 'b6']
-    for var in vars_to_interact_with_store:
-        x_data = add_store_interaction(x_data, var)
-
-    return x_data
-
-
-def create_base_interactions(x_data, interactions):
-
-    for key, val in interactions.items():
-        x_data[key] = x_data[val[0]] * x_data[val[1]]
-
-    return x_data
-
-
-def add_store_interaction(x_data, varname):
-
-    new_var_name = varname+"_x_store_"
-    for i in range(1,45):
-        if i != 35:
-            new_col = new_var_name + str(i)
-            x_data[new_col] = x_data[i] * x_data[varname]
-
-    return x_data
 
 def create_store_dummies(x_data, train_flag):
 
@@ -336,7 +324,7 @@ if __name__ == "__main__":
     pd.options.display.max_columns = 82
 
     # Global variables
-    run_code = 'BASE_GRID'   # BASE_GRID, FEAT_GRID, BY_STORE
+    run_code = 'FEATGRIDS'   # GRIDSEARCH, NO_GRID, BY_STORE or FEAT_GRID
     best_scores = pd.read_csv('../wmt_data/best_scores.csv')   # Load the existing best scores by item number
     best_scores_dict = best_scores.set_index('item')['RMSE'].to_dict()
     main()

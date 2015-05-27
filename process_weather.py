@@ -10,14 +10,17 @@ def run_wthr():
     weather = pd.read_csv('../wmt_data/weather.csv')
 
     # arguments for function below -- add_wknd, add_trail_lead, drop_other_data, add_holidays
-    weather = process_weather_file(weather, True, False, True, True)
+    weather = process_weather_file(weather, True, True, True)
     print weather.columns
     weather.to_csv('../wmt_data/weather_processed.csv')
 
     return
 
 
-def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add_holiday_flag):
+def process_weather_file(weather, add_wknd, other_data_flag, add_holiday_flag):
+
+    # Set index to datetime index
+    weather.set_index(pd.to_datetime(weather['date']), inplace=True)
 
     # Update missing values or T for trace values
     print("Updating missing weather data.....")
@@ -51,19 +54,19 @@ def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add
     weather['date_int'] = w_dates.astype(np.int64) / 1000000000000000
 
     # add flags for each day and add week of year
+    weather['weekofyear'] = weather.index.weekofyear
     weather = create_day_flag(weather)
-    weather = add_week_of_year(weather)
-    # weather = add_month_of_year(weather)
+    weather = add_month_of_year(weather)
+    weather['monthstart'] = weather.index.is_month_start
+    weather.monthstart = weather.monthstart.apply(lambda x: 1 if x == True else 0)
+    weather = add_year(weather)
+
 
     # Create a flag indicating if the given day is a weekend
     if add_wknd:
         weather = create_wknd_flag(weather)
 
-    # Add 3 days of pre and post data for precipitation and snow
-    if add_trail_lead:
-        weather = add_trailing_leading_weather(weather)
-
-    # Add 3 days of pre and post data for precipitation and snow
+    # Add holiday booleans
     if add_holiday_flag:
         weather = add_holidays(weather)
 
@@ -75,6 +78,7 @@ def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add
         weather.drop('dewpoint', axis=1, inplace=True)
         weather.drop('stnpressure', axis=1, inplace=True)
         weather.drop('sealevel', axis=1, inplace=True)
+        weather.drop('wetbulb', axis=1, inplace=True)
         weather.drop('resultspeed', axis=1, inplace=True)
         weather.drop('resultdir', axis=1, inplace=True)
         weather.drop('avgspeed', axis=1, inplace=True)
@@ -82,8 +86,10 @@ def process_weather_file(weather, add_wknd, add_trail_lead, other_data_flag, add
         weather.drop('cool', axis=1, inplace=True)
 
     # Create flag for weather event
-    #weather['rain_event'] = weather.apply(lambda thisrow: 1 if thisrow['preciptotal'] > 1 else 0, axis=1)
-    #weather['snow_event'] = weather.apply(lambda thisrow: 1 if thisrow['snowfall'] > 2 else 0, axis=1)
+    weather['weather_event'] = weather.apply(lambda thisrow: 1 if thisrow['preciptotal'] > 1 or
+                                                                  thisrow['snowfall'] > 2 else 0, axis=1)
+    # weather['rain_event'] = weather.apply(lambda thisrow: 1 if thisrow['preciptotal'] > 1 else 0, axis=1)
+    # weather['snow_event'] = weather.apply(lambda thisrow: 1 if thisrow['snowfall'] > 2 else 0, axis=1)
 
     return weather
 
@@ -96,17 +102,6 @@ def create_wknd_flag(weather):
     for index, row in weather.iterrows():
         if pd.to_datetime(row['date']).dayofweek in [5, 6]:
             weather.at[index,'weekend'] = 1
-
-    return weather
-
-
-def add_week_of_year(weather):
-
-    # Create flags for weekends
-    print("adding week of year.....")
-    weather['weekofyear'] = 0
-    for index, row in weather.iterrows():
-        weather.at[index,'weekofyear'] = pd.to_datetime(row['date']).weekofyear
 
     return weather
 
@@ -125,6 +120,23 @@ def add_month_of_year(weather):
     for index, row in weather.iterrows():
         month_int = pd.to_datetime(row['date']).month
         weather.at[index, months[month_int]] = 1
+
+    return weather
+
+
+def add_year(weather):
+
+    # Create binary vars for each month
+    print("Creating flags for each year.....")
+    weather['y2012'] = 0
+    weather['y2013'] = 0
+    weather['y2014'] = 0
+
+    # Set month to 1
+    for index, row in weather.iterrows():
+        year_int = index.year
+        year_string = 'y'+str(year_int)
+        weather.at[index, year_string] = 1
 
     return weather
 
@@ -202,8 +214,17 @@ def add_holidays(weather):
                     '2014-06-15':'fath_day',
                     '2014-06-14':'db_fath_day',
                     '2012-09-03':'lab_day',
+                    '2012-09-02':'dblab_day',
+                    '2012-09-01':'dblab_day',
+                    '2012-08-31':'dblab_day',
                     '2013-09-02':'lab_day',
-                    '2014-09-0x':'lab_day',
+                    '2013-09-01':'dblab_day',
+                    '2013-08-31':'dblab_day',
+                    '2013-08-30':'dblab_day',
+                    '2014-09-01':'lab_day',
+                    '2014-08-31':'dblab_day',
+                    '2014-08-30':'dblab_day',
+                    '2014-08-29':'dblab_day',
                     '2012-02-14':'valentine',
                     '2013-02-14':'valentine',
                     '2014-02-14':'valentine',
@@ -211,12 +232,26 @@ def add_holidays(weather):
                     '2013-12-25':'xmas',
                     '2012-12-24':'xmaseve',
                     '2013-12-24':'xmaseve',
+                    '2012-12-23':'db_xmaseve',
+                    '2013-12-23':'db_xmaseve',
+                    '2012-12-22':'db_xmaseve',
+                    '2013-12-22':'db_xmaseve',
+                    '2012-12-21':'db_xmaseve',
+                    '2013-12-21':'db_xmaseve',
+                    '2012-11-18':'dbthanks',
+                    '2012-11-19':'dbthanks',
+                    '2012-11-20':'dbthanks',
                     '2012-11-21':'dbthanks',
                     '2012-11-22':'thanks',
                     '2012-11-23':'blackfriday',
+                    '2012-11-24':'da_blackfriday',
+                    '2013-11-24':'dbthanks',
+                    '2013-11-25':'dbthanks',
+                    '2013-11-26':'dbthanks',
                     '2013-11-27':'dbthanks',
                     '2013-11-28':'thanks',
                     '2013-11-29':'blackfriday',
+                    '2013-11-30':'da_blackfriday',
                     '2012-12-31':'nye',
                     '2013-12-31':'nye'}
 

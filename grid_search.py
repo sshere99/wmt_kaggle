@@ -4,8 +4,10 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import Imputer
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.ensemble import BaggingRegressor
-from sklearn import linear_model
+from sklearn.ensemble import AdaBoostRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
+from sklearn.linear_model import SGDRegressor
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_squared_error, make_scorer
 from sklearn import grid_search
@@ -24,7 +26,7 @@ def run_tests():
     if process_weather:
         print("Reading in unprocessed weather file.....")
         weather = pd.read_csv('../wmt_data/weather.csv')
-        weather = pw.process_weather_file(weather, True, False, True, True)
+        weather = pw.process_weather_file(weather, True, True, True)
         weather.to_csv('../wmt_data/weather_processed.csv')
 
     else:
@@ -38,7 +40,7 @@ def run_tests():
         item_nbr = i+1
         print("Running model for item {}".format(item_nbr))
         train_item = train[train['item_nbr'] == item_nbr]
-        run_model_by_item(train_item, item_nbr)
+        run_rf_model_by_item(train_item, item_nbr)
 
 
     return
@@ -67,20 +69,20 @@ def merge_train_weather(weather):
     return train_merged
 
 
-def run_model_by_item(train, item_num):
+def run_rf_model_by_item(train, item_num):
 
     X, Y = convert_to_numpy(train)
     n_features = int(X.shape[1])
 
     # Grid search parameters
     parameters = {'max_features': [n_features],
-                  'min_samples_split': [500, 1000],
-                  'min_samples_leaf': [1, 50, 100],
+                  'min_samples_split': [100],
+                  'min_samples_leaf': [50],
                   }
     my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
 
-    rf = RandomForestRegressor()
-    clf = grid_search.GridSearchCV(rf, parameters, cv=10, scoring=my_scorer)
+    rf = RandomForestRegressor(n_estimators=20)
+    clf = grid_search.GridSearchCV(rf, parameters, cv=7, scoring=my_scorer)
     clf.fit(X, Y)
 
     print("Best parameters set found on development set:\n")
@@ -91,6 +93,30 @@ def run_model_by_item(train, item_num):
               % (mean_score, scores.std() * 2, params))
 
     return
+
+
+def run_alt_model_by_item(train, item_num):
+
+    X, Y = convert_to_numpy(train)
+    n_features = int(X.shape[1])
+
+    # Grid search parameters
+    parameters = {'n_estimators': [10,100]}
+    my_scorer = make_scorer(sf.rmsle, greater_is_better=False)
+
+    ada = AdaBoostRegressor(n_estimators=100)
+    clf = grid_search.GridSearchCV(ada, parameters, scoring=my_scorer)
+    clf.fit(X, Y)
+
+    print("Best parameters set found on development set:\n")
+    print(clf.best_params_)
+    print("\n Grid scores on development set:\n")
+    for params, mean_score, scores in clf.grid_scores_:
+        print("%0.3f (+/-%0.03f) for %r"
+              % (mean_score, scores.std() * 2, params))
+
+    return
+
 
 def convert_to_numpy(train):
     y = train['units']   # Get labels
@@ -111,9 +137,10 @@ def process_x_data(x_data, train_flag):  ## train flag = True if sending train d
         x_new['35_new'] = x_new[35]
         x_new.drop(35, axis=1, inplace=True)
 
-    x_new.drop('Unnamed: 0', axis=1, inplace=True)
+    #x_new.drop('Unnamed: 0', axis=1, inplace=True)
     x_new.drop('store_nbr', axis=1, inplace=True)
-    #print("Columns to run the model on are: {}".format(list(x_new.columns)))
+    x_new.drop('date.1', axis=1, inplace=True)
+    print("Columns to run the model on are: {}".format(list(x_new.columns)))
     X = x_new.as_matrix()
     imputer = Imputer()
     X = imputer.fit_transform(X)   # Fill in mean for missing NaN values
